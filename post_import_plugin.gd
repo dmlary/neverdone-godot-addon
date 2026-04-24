@@ -228,7 +228,10 @@ func _set_scene_property(scene: Object, prop_name: String, value: Variant):
 
     log.warn(self, property)
     if property.type == TYPE_NODE_PATH:
-        value = NodePath(value)
+        if value:
+            value = NodePath(value)
+    elif property.type == TYPE_BOOL:
+        value = int(value) == 1
 
     log.debug(
         self,
