@@ -62,8 +62,7 @@ func _post_process(scene: Node) -> void:
                 if shape_info['shape'] == 'BOX':
                     var size = shape_info['size']
                     size = Vector3(size[0], size[2], size[1])
-                    var center = shape_info['center']
-                    center = Vector3(center[0], center[2], -center[1])
+                    var center = _vec3_from_blender(shape_info['center'])
 
                     # Note: we're not doing `+Y Up` in collision_shape export
                     var shape = BoxShape3D.new()
@@ -103,6 +102,31 @@ func _post_process(scene: Node) -> void:
                 ' with collision shape ',
                 node_extras['collision_shape'],
             )
+
+        # The node represents a Path3D.  We will create a Curve3D based on the
+        # values in `path_points`, and add it to a Path3D.  We will replace the
+        # current node with that Path3D.
+        elif node and 'path_points' in node_extras:
+            var curve := Curve3D.new()
+            for point: Array in node_extras.path_points:
+                # In Blender, bezier curve in/out values are in local space,
+                # and that's what is stored in each point Array: 
+                # [point, in, out]
+                # In Godot, the in/out values are vectors relative to the
+                # point.  We're converting local space to point-relative here
+                # when we add the point to the Curve3D.
+                var pos := _vec3_from_blender(point[0])
+                curve.add_point(
+                    pos,
+                    _vec3_from_blender(point[1]) - pos,
+                    _vec3_from_blender(point[2]) - pos,
+                )
+
+            var path := Path3D.new()
+            path.curve = curve
+
+            _replace_node(node, path)
+
         elif node is MeshInstance3D:
             var mesh: Mesh = node.mesh
             for i in mesh.get_surface_count():
@@ -169,6 +193,12 @@ func _internal_process(category: int, base_node: Node, node: Node, resource: Res
         ', resource ',
         resource,
     )
+
+
+## Convert Array containing x, y, z coords from Blender into Godot Vector3.
+## Note: this function does the Y-Up, and Z changes
+func _vec3_from_blender(point: Array) -> Vector3:
+    return Vector3(point[0], point[2], -point[1])
 
 
 ## Replace the supplied node with another node
