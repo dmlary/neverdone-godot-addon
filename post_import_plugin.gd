@@ -110,7 +110,7 @@ func _post_process(scene: Node) -> void:
             var curve := Curve3D.new()
             for point: Array in node_extras.path_points:
                 # In Blender, bezier curve in/out values are in local space,
-                # and that's what is stored in each point Array: 
+                # and that's what is stored in each point Array:
                 # [point, in, out]
                 # In Godot, the in/out values are vectors relative to the
                 # point.  We're converting local space to point-relative here
