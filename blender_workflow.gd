@@ -288,6 +288,7 @@ func _setup_anim_track_imports(gltf: GltfWrapper, import_config: ConfigFile):
     if 'animations' not in subresources:
         subresources['animations'] = { }
     var animations = subresources['animations']
+    var meshes = subresources['meshes']
 
     for animation in gltf.data['animations']:
         # Godot is going to strip these suffixes from the animation names.  We
@@ -317,6 +318,17 @@ func _setup_anim_track_imports(gltf: GltfWrapper, import_config: ConfigFile):
 
         animations[name] = cfg
         log.debug(self, "save ", name, " to ", cfg['save_to_file/path'])
+
+    # Also, in Blender, we're not able to replace the materials on linked
+    # meshes without library overrides before export.  So here, we're just
+    # going to disable the import of every mesh (and therefore every material)
+    # in the GLTF file.  We disable the import by saying "yes, save this mesh",
+    # but don't give a save destination.  It works for now?
+    for node in gltf.data.nodes:
+        log.warn(self, node.name)
+        meshes[node.name] = {
+            'save_to_file/enabled'= true
+        }
 
     # Store the subresources back into the import config.  This is necessary
     # because we may be creating the dictionary for the first time.
