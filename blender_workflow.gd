@@ -290,6 +290,18 @@ func _setup_anim_track_imports(gltf: GltfWrapper, import_config: ConfigFile):
     var animations = subresources['animations']
     var meshes = subresources['meshes']
 
+    # Pull the framerate from the GLTF extras.  Note, we do not calculate the
+    # FPS from the animation sampler's accessor because of floating point
+    # accumulation errors.
+    #
+    # Instead, our addon in Blender will write frame_rate_ratio, containing
+    # [fps, fps_base].  We'll calculate the frame rate from those two values
+    # and set them in the import config.
+    var frame_rate_ratio = gltf.scene_extras.frame_rate_ratio
+    var fps = frame_rate_ratio[0] / frame_rate_ratio[1]
+    import_config.set_value('params', 'animation/fps', fps)
+
+    # Configure each animation for individual export to its own resource file
     for animation in gltf.data['animations']:
         # Godot is going to strip these suffixes from the animation names.  We
         # need to do it too, otherwise our .import track names won't match what
@@ -302,7 +314,7 @@ func _setup_anim_track_imports(gltf: GltfWrapper, import_config: ConfigFile):
             name = stripped_name
             loop = true
 
-        # log.debug(self, animation)
+        # setup the base configuration
         var cfg = {
             'save_to_file/enabled'= true,
             'save_to_file/path'= str(
