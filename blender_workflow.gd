@@ -118,10 +118,14 @@ func _on_resources_reimported(paths):
 
         # if we imported a Scene asset, we need to make sure there is a scene
         # to point at the GLTF
-        if asset_type == 'SCENE':
+        if asset_type == 'SCENE' || asset_type == 'INHERIT':
             var uid = asset_uri(extras.get(&'asset_id'))
             var tscn_path = _gltf_scene_path(path)
-            var scene_base = workflow_props.get(&'base_scene_res_path', '')
+            var scene_base
+            if asset_type == 'SCENE':
+                scene_base = workflow_props.get(&'base_scene_res_path', '')
+            else:
+                scene_base = path
 
             # if the scene already exists, make sure the UID is the asset id,
             # and return
@@ -246,7 +250,7 @@ func setup_import_config(gltf_path: String) -> void:
         import_config.set_value('remap', 'uid', asset_uid)
         log.info(self, gltf_path, ' set UID ', asset_uid)
 
-    elif asset_type == 'SCENE':
+    elif asset_type == 'SCENE' || asset_type == 'INHERIT':
         # Check to see if the asset was changed from a GLTF to a scene
         var tscn_path = _gltf_scene_path(gltf_path)
         if asset_id_exists && asset_id_path != tscn_path:
