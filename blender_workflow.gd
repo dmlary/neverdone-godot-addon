@@ -425,18 +425,20 @@ func create_gltf_scene(
         )
         root = base_scene.instantiate(PackedScene.GEN_EDIT_STATE_MAIN_INHERITED)
 
-    # Construct the scene by adding the GLTF scene as an instance of the root
-    var gltf_scene = ResourceLoader.load(gltf_path).instantiate()
-    root.add_child(gltf_scene)
-    root.name = gltf_scene.name
-    gltf_scene.owner = root
+    # If the base of the scene isn't the GLTF scene, add the GLTF scene as a
+    # scene instance
+    if gltf_path != base_scene_path:
+        var gltf_scene = ResourceLoader.load(gltf_path).instantiate()
+        root.add_child(gltf_scene)
+        root.name = gltf_scene.name
+        gltf_scene.owner = root
 
-    # if the root is an inherited scene that has an export for the GLTF scene
-    # instance, set it now.  This allows the inherited scene script to connect
-    # to elements in the GLTF scene.
-    if obj_has_export(root, &'gltf_scene_instance'):
-        log.debug(self, 'setting gltf scene instance in ', root)
-        root.set('gltf_scene_instance', gltf_scene)
+        # if the root is an inherited scene that has an export for the GLTF
+        # scene instance, set it now.  This allows the inherited scene script
+        # to connect to elements in the GLTF scene.
+        if obj_has_export(root, &'gltf_scene_instance'):
+            log.debug(self, 'setting gltf scene instance in ', root)
+            root.set('gltf_scene_instance', gltf_scene)
 
     # Pack and save the scene
     var packed_scene := PackedScene.new()
