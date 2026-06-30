@@ -292,6 +292,8 @@ func _setup_anim_track_imports(gltf: GltfWrapper, import_config: ConfigFile):
     if 'animations' not in subresources:
         subresources['animations'] = { }
     var animations = subresources['animations']
+    if 'meshes' not in subresources:
+        subresources['meshes'] = { }
     var meshes = subresources['meshes']
 
     # Pull the framerate from the GLTF extras.  Note, we do not calculate the
