@@ -324,7 +324,7 @@ func _setup_anim_track_imports(gltf: GltfWrapper, import_config: ConfigFile):
 		var cfg = {
 			'save_to_file/enabled'= true,
 			'save_to_file/path'= str(
-				gltf.path.get_base_dir(),
+				gltf.path.replace("/export/", "/").get_base_dir(),
 				'/',
 				normalize_filename(animation.name),
 				'.tres',
