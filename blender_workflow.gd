@@ -120,7 +120,7 @@ func _on_resources_reimported(paths):
 		# to point at the GLTF
 		if asset_type == 'SCENE' || asset_type == 'INHERIT':
 			var uid = asset_uri(extras.get(&'asset_id'))
-			var tscn_path = _gltf_scene_path(path)
+			var tscn_path = _gltf_scene_path(path).replace("/export/", "/")
 			var scene_base
 			if asset_type == 'SCENE':
 				scene_base = workflow_props.get(&'base_scene_res_path', '')
