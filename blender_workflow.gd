@@ -533,7 +533,7 @@ func post_import_handle_animations(gltf: GltfWrapper):
 			'rig_asset_ref path: ',
 			root_path.get_basename(),
 		)
-		var anim_lib_path = str(root_path.get_basename(), '-animlib.tres')
+		var anim_lib_path = str(root_path.get_basename().replace("/export/", "/"), '-animlib.tres')
 		if ResourceLoader.exists(anim_lib_path):
 			anim_lib = load(anim_lib_path)
 		else:
