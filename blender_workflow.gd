@@ -312,13 +312,12 @@ func _setup_anim_track_imports(gltf: GltfWrapper, import_config: ConfigFile):
         # Godot is going to strip these suffixes from the animation names.  We
         # need to do it too, otherwise our .import track names won't match what
         # they expect, and will be ignored.
-        # Also support the looping flag
+        # We ignore the looping prefix/suffix checking.  We've moved that to an
+        # explicit extra field on the GLTF animation
         var name: String = animation.name
-        var loop := false
         var stripped_name = gltf.strip_animation_suffix(name)
         if stripped_name != null:
             name = stripped_name
-            loop = true
 
         # setup the base configuration
         var cfg = {
@@ -331,8 +330,16 @@ func _setup_anim_track_imports(gltf: GltfWrapper, import_config: ConfigFile):
             ),
             'save_to_file/keep_custom_tracks'= true,
         }
-        if loop:
+
+        # Pull loop mode from the extras
+        var anim_extras = animation.get('extras', { })
+        var loop_mode = anim_extras.get('loop_mode', 'None')
+        if loop_mode == 'Ping-Pong':
+            cfg['settings/loop_mode'] = Animation.LoopMode.LOOP_PINGPONG
+        elif loop_mode == 'Repeat':
             cfg['settings/loop_mode'] = Animation.LoopMode.LOOP_LINEAR
+        else:
+            cfg['settings/loop_mode'] = Animation.LoopMode.LOOP_NONE
 
         animations[name] = cfg
         log.debug(self, "save ", name, " to ", cfg['save_to_file/path'])
@@ -497,7 +504,24 @@ func post_import_handle_animations(gltf: GltfWrapper):
         var config = animations[animation_name]
         var anim_extras = gltf.get_animation_extras(animation_name)
         var anim_path = config[&'save_to_file/path']
-        var anim = load(anim_path)
+        var anim: Animation = load(anim_path)
+
+        var anim_dirty := false
+
+        # UGH, Godot does not honor the .import loop_mode value on re-import.
+        # We have to duplicate the work we did in the import setup here to
+        # force the animation track to the proper loop mode.
+        var loop_mode = anim_extras.get('loop_mode', 'None')
+        if loop_mode == 'Ping-Pong':
+            loop_mode = Animation.LoopMode.LOOP_PINGPONG
+        elif loop_mode == 'Repeat':
+            loop_mode = Animation.LoopMode.LOOP_LINEAR
+        else:
+            loop_mode = Animation.LoopMode.LOOP_NONE
+
+        if loop_mode != anim.loop_mode:
+            anim.loop_mode = loop_mode
+            anim_dirty = true
 
         # If there is a rig asset id, make sure to update the animation track
         # paths to they work properly when the Animation root is set to the
@@ -526,7 +550,10 @@ func post_import_handle_animations(gltf: GltfWrapper):
 
         # The rig_asset_ref is valid; fix up the animation track paths
         # if necessary.
-        fixup_animation_track_paths(anim, root_path)
+        anim_dirty = anim_dirty || fixup_animation_track_paths(anim, root_path)
+
+        if anim_dirty:
+            ResourceSaver.save(anim)
 
         log.warn(
             self,
@@ -558,7 +585,8 @@ func post_import_handle_animations(gltf: GltfWrapper):
 
 ## Go through the tracks of the Animation, and fixup any track path that does
 ## not match in the GLTF root scene.
-func fixup_animation_track_paths(animation: Animation, root_path: String):
+## Returns true if changes were made to the Animation
+func fixup_animation_track_paths(animation: Animation, root_path: String) -> bool:
     log.trace(
         self,
         animation.resource_path,
@@ -566,7 +594,7 @@ func fixup_animation_track_paths(animation: Animation, root_path: String):
         root_path,
     )
     if not root_path:
-        return
+        return false
 
     # Handle the case where the root path is a .tscn; we really want the .gltf
     # because all AnimationPlayers will have their root node set to the .gltf
@@ -635,8 +663,7 @@ func fixup_animation_track_paths(animation: Animation, root_path: String):
     root_scene.free()
 
     # if we made any changes, save the animation
-    if dirty:
-        ResourceSaver.save(animation)
+    return dirty
 
 
 ## Convert non-URI asset id strings into uid:// URIs
