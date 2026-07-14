@@ -12,6 +12,9 @@ class GltfWrapper:
     var data: Dictionary
     ## Cached scene extras
     var scene_extras: Dictionary
+    ## Cache the node heirarchy so we can go from Godot node path to GLTF file
+    ## node index
+    var _node_path_cache: Dictionary
 
 
     func _init(gltf_path):
@@ -23,14 +26,103 @@ class GltfWrapper:
         scene_extras = scene.get('extras', { })
 
 
-    ## Get the extras set on an animation track by Godot name (stripped of
-    ## suffix)
-    func get_animation_extras(name) -> Dictionary:
+    ## Convert the full node hierarchy into a cache we can lookup node indexes
+    ## by Godot NodePath strings.  This is needed to support looking up
+    ## animation channels by Godot NodePath for per-channel interpolation
+    ## override.
+    func _build_node_path_cache():
+        _node_path_cache = { }
+        var bone_set = { }
+
+        # Grab the list of node indexes that are for bones.  This matters
+        # later because Godot does bone heirarchy flattening during 4.5+ import
+        for skin in data.get('skins', []):
+            for j in skin.get('joints', []):
+                # Gotta convert it to an int here because they're floats by
+                # default -__-
+                bone_set[int(j)] = true
+
+        # print("XXX ", bone_set)
+
+        # Walk the GLTF node hierarchy building our node cache
+        var root_nodes = data['scenes'][data['scene']].get('nodes', [])
+        for idx in root_nodes:
+            _walk_and_cache(idx, '', bone_set)
+
+        # print("XXX ", _node_path_cache)
+
+
+    ## Walks the GLTF node list and populates the node path cache.
+    func _walk_and_cache(idx: int, parent_path: String, bone_set: Dictionary):
+        var node = data.nodes[idx]
+        var name = node.get('name', '')
+        var key ## NodePath string for this node
+        var prefix ## NodePath prefix for all children of this node
+
+        # If this node is a bone, we need to handle it differently from a
+        # normal node.  Bones get shoved under a Skeleton3D, and their
+        # heirarchy flattened.  This is the Godot 4.5+ import mode.  Not
+        # guaranteed to work with the older import modes.
+        # Also not guaranteed to work with multiple armatures because I didn't
+        # test it.
+        if bone_set.has(idx):
+            if parent_path:
+                key = parent_path + '/Skeleton3D:' + name
+            else:
+                key = 'Skeleton3D:' + name
+
+            # Godot flattens bone hierarchy, so keep our parent path as prefix
+            prefix = parent_path
+        else:
+            # Normal node, let's just traverse, and new prefix is our key
+            key = parent_path + '/' + name if parent_path else name
+            prefix = key
+
+        # Save the info to the cache
+        _node_path_cache[key] = idx
+
+        # Walk the children
+        for child in node.get('children', []):
+            _walk_and_cache(child, prefix, bone_set)
+
+
+    ## Get the animation by name (handles name stripping)
+    func get_animation(name) -> Dictionary:
         for animation in data['animations']:
             # support both the GLTF name, and the godot import stripped name
             var stripped_name = strip_animation_suffix(animation.name)
             if (stripped_name && stripped_name == name) || (animation.name == name):
-                return animation.get('extras', { })
+                return animation
+        return { }
+
+
+    ## Get the extras set on an animation track by Godot name (stripped of
+    ## suffix)
+    func get_animation_extras(name) -> Dictionary:
+        var animation = get_animation(name)
+        if animation == null:
+            return { }
+
+        return animation.get('extras', { })
+
+
+    ## Get the gltf channel for a given animation name and track NodePath
+    func get_animation_channel(animation_name: String, track_path: NodePath) -> Dictionary:
+        # Populate the cache if we haven't already
+        if _node_path_cache.is_empty():
+            _build_node_path_cache()
+
+        # Lookup the node index for this path from the node cache
+        var node_idx = _node_path_cache.get(str(track_path), -1)
+        if node_idx < 0:
+            return { }
+
+        # Now with the GLTF node index from the NodePath, we find which channel
+        # in the animation matches our node
+        var animation = get_animation(animation_name)
+        for channel in animation['channels']:
+            if channel.target.node == node_idx:
+                return channel
 
         return { }
 
@@ -350,7 +442,6 @@ func _setup_anim_track_imports(gltf: GltfWrapper, import_config: ConfigFile):
     # in the GLTF file.  We disable the import by saying "yes, save this mesh",
     # but don't give a save destination.  It works for now?
     for node in gltf.data.nodes:
-        log.warn(self, node.name)
         meshes[node.name] = {
             'save_to_file/enabled'= true
         }
@@ -465,7 +556,6 @@ func create_gltf_scene(
 
 ## Post-import of animation tracks, update the associated AnimationLibrary
 func post_import_handle_animations(gltf: GltfWrapper):
-    log.debug(self, 'meep')
     # Extract the list of animations from the import config
     var import_config_path = gltf.path + '.import'
     var import_config := ConfigFile.new()
@@ -550,12 +640,16 @@ func post_import_handle_animations(gltf: GltfWrapper):
 
         # The rig_asset_ref is valid; fix up the animation track paths
         # if necessary.
-        anim_dirty = anim_dirty || fixup_animation_track_paths(anim, root_path)
+        anim_dirty = anim_dirty || fixup_animation_tracks(
+            anim,
+            root_path,
+            gltf,
+        )
 
         if anim_dirty:
             ResourceSaver.save(anim)
 
-        log.warn(
+        log.debug(
             self,
             'rig_asset_ref path: ',
             root_path.get_basename(),
@@ -585,8 +679,10 @@ func post_import_handle_animations(gltf: GltfWrapper):
 
 ## Go through the tracks of the Animation, and fixup any track path that does
 ## not match in the GLTF root scene.
+## Also sets forced interpolation mode per-channel based on extras in the GLTF
+## exports.
 ## Returns true if changes were made to the Animation
-func fixup_animation_track_paths(animation: Animation, root_path: String) -> bool:
+func fixup_animation_tracks(animation: Animation, root_path: String, gltf: GltfWrapper) -> bool:
     log.trace(
         self,
         animation.resource_path,
@@ -617,10 +713,43 @@ func fixup_animation_track_paths(animation: Animation, root_path: String) -> boo
         if not animation.track_is_imported(track_idx):
             continue
 
-        # If the track path is valid in the GLTF scene, nothing to be done
+        # Get the path for the track
         var track_path: NodePath = animation.track_get_path(track_idx)
+
+        # Get the channel info from the GLTF.  If the channel info contains an
+        # interpolation extra, use that to override the track interpolation.
+        var channel = gltf.get_animation_channel(
+            animation.resource_name,
+            track_path,
+        )
+        var channel_extras = channel.get("extras", { })
+        var interpolation = channel_extras.get("interpolation", "")
+        if interpolation == "Linear":
+            animation.track_set_interpolation_type(track_idx, Animation.INTERPOLATION_LINEAR)
+            dirty = true
+            log.info(
+                self,
+                "Animation ",
+                animation.resource_name,
+                ", Track ",
+                track_path,
+                ", forced interpolation mode: Linear",
+            )
+        elif interpolation == "Step":
+            animation.track_set_interpolation_type(track_idx, Animation.INTERPOLATION_NEAREST)
+            dirty = true
+            log.info(
+                self,
+                "Animation ",
+                animation.resource_name,
+                ", Track ",
+                track_path,
+                ", forced interpolation mode: Step",
+            )
+
+        # If the track path is valid in the GLTF scene, nothing to be done
         if root_scene.has_node(track_path):
-            log.trace(self, "animation track path exists: ", track_path)
+            # log.trace(self, "animation track path exists: ", track_path)
             continue
 
         # Track path does not exist; let's try a depth limited search to see if
