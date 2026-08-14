@@ -518,10 +518,17 @@ func create_gltf_scene(
 
     # Base scene exists, create a new inherited scene from it
     else:
-        var base_scene = create_inherited_scene(
-            ResourceLoader.load(base_scene_path),
-        )
-        root = base_scene.instantiate(PackedScene.GEN_EDIT_STATE_MAIN_INHERITED)
+        var base_scene = ResourceLoader.load(base_scene_path)
+
+        # we need to instantiate the packedscene to get the name of the root
+        # node to use in our inherited scene.
+        var base_scene_instance = base_scene.instantiate()
+        var base_name = base_scene_instance.name
+        base_scene_instance.free()
+
+        # create the inherited scene
+        var inherited_scene = create_inherited_scene(base_scene, base_name)
+        root = inherited_scene.instantiate(PackedScene.GEN_EDIT_STATE_MAIN_INHERITED)
 
     # If the base of the scene isn't the GLTF scene, add the GLTF scene as a
     # scene instance
