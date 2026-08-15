@@ -3,6 +3,9 @@ extends EditorScenePostImportPlugin
 
 var log := Logrr.new()
 
+## Missing UID tracker, used to report when we fail to lookup an asset_ref
+var missing_uid_tracker
+
 
 func _pre_process(scene: Node) -> void:
     # enable tons of debug info
@@ -32,8 +35,28 @@ func _post_process(scene: Node) -> void:
             var asset_ref = BlenderWorkflowPlugin.asset_uri(
                 node_extras['asset_ref'],
             )
+            var scene_resource: PackedScene = ResourceLoader.load(asset_ref)
+            if scene_resource == null:
+                # The asset we're referencing hasn't been imported yet.  Let's
+                # warn the user, and add the UID to the missing list.  If it's
+                # imported later, this asset will be reimported to link to the
+                # missing asset.
+                log.warn(
+                    self,
+                    'Asset reference ',
+                    asset_ref,
+                    ' not available for ',
+                    _oot_path(node),
+                    '; scene will be reimported when missing asset imported.',
+                )
+                missing_uid_tracker.report_missing_uid(
+                    asset_ref,
+                    get_option_value('_source_file'),
+                )
 
-            var scene_instance = ResourceLoader.load(asset_ref).instantiate()
+                continue
+
+            var scene_instance = scene_resource.instantiate()
             _replace_node(node, scene_instance)
 
             # Set any properties on the scene that were set in the GLTF extras

@@ -139,12 +139,18 @@ class GltfWrapper:
 var log := Logrr.new()
 var post_import_plugin = preload('post_import_plugin.gd').new()
 
+## Class for tracking missing UIDs
+const MissingUidTracker := preload('missing_uid_tracker.gd')
+
+## Missing UID tracker
+var missing_uid_tracker: MissingUidTracker
+
 var file_system_signals = {
     # "filesystem_changed": _on_filesystem_changed,
     "resources_reimporting": _on_resources_reimporting,
     "resources_reimported": _on_resources_reimported,
     # "resources_reload": _on_resources_reload,
-    # "sources_changed": _on_sources_changed,
+    "sources_changed": _on_sources_changed,
 }
 
 
@@ -160,11 +166,16 @@ func _disable_plugin() -> void:
 
 func _enter_tree() -> void:
     log.set_level(self, Logrr.Level.TRACE)
+
     add_scene_post_import_plugin(post_import_plugin)
 
     var file_system := get_editor_interface().get_resource_filesystem()
     for s in self.file_system_signals:
         file_system.connect(s, self.file_system_signals[s])
+
+    # Create our missing UID tracker, and connect it to our post-import plugin
+    missing_uid_tracker = MissingUidTracker.new(file_system)
+    post_import_plugin.missing_uid_tracker = missing_uid_tracker
 
 
 func _exit_tree() -> void:
@@ -177,8 +188,10 @@ func _exit_tree() -> void:
 
 
 func _on_sources_changed(exist):
-    # called every time we focus godot
-    log.trace(self, 'exist ', exist)
+    # Fires after a scan completes.  Use the missing UID tracker to check if
+    # any of the missing UIDs are now available.  If so, we'll reimport the
+    # GLTF files that needed the UID.
+    missing_uid_tracker.reimport_resolved()
 
 
 func _on_filesystem_changed():
@@ -187,6 +200,10 @@ func _on_filesystem_changed():
 
 ## Run before resources are imported
 func _on_resources_reimporting(paths):
+    # Before we import anything, do a check for missing UIDs.  Note, this only
+    # does a full scan on the first import.  After that it's a noop.
+    missing_uid_tracker.prescan(paths)
+
     for path in paths:
         if not path.get_extension() == 'gltf':
             continue
@@ -292,6 +309,11 @@ func setup_import_config(gltf_path: String) -> void:
         'nodes/root_type',
         extras.get('root_node_type', 'Node3D'),
     )
+    # Add _source_file for our use in the post-import plugin; it's how we link
+    # the missing UID to a GLTF file.
+    import_config.set_value('params', '_source_file', gltf_path)
+    # suppress a Godot error by setting a value for remap.importer
+    import_config.set_value('remap', 'importer', 'scene')
 
     # When handling asset_id collisions, there are two conditions where the UID
     # will be swapped from one asset to another.  They happen when a GLTF asset
