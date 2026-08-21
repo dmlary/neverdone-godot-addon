@@ -314,6 +314,17 @@ func setup_import_config(gltf_path: String) -> void:
     import_config.set_value('params', '_source_file', gltf_path)
     # suppress a Godot error by setting a value for remap.importer
     import_config.set_value('remap', 'importer', 'scene')
+    # If the GLTF extras include an instance_offset, we need to pass it to the
+    # importer so the post-import can move the root node for that offset.  Note
+    # we have to supply a default here because EditorScenePostImportPlugin has
+    # no mechanism to check for the existence of an option, and
+    # get_option_value() in there raises a loud error when you ask for
+    # something that doesn't exist -__-.
+    import_config.set_value(
+        'params',
+        '_instance_offset',
+        gltf.scene_extras.get("instance_offset", [0, 0, 0]),
+    )
 
     # When handling asset_id collisions, there are two conditions where the UID
     # will be swapped from one asset to another.  They happen when a GLTF asset

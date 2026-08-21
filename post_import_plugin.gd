@@ -20,6 +20,10 @@ func _post_process(scene: Node) -> void:
     # .tres files, but we still generate a .scn containing all the nodes.  See
     # about not generating a node tree when we're importing Animations
 
+    # Adjust the root node of the scene for any instance offset in the GLTF
+    # file.
+    scene.position += _vec3_from_blender(get_option_value('_instance_offset'))
+
     var queue = [scene]
     while !queue.is_empty():
         var node: Node = queue.pop_front()
