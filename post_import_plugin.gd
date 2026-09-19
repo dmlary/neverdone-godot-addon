@@ -20,9 +20,17 @@ func _post_process(scene: Node) -> void:
     # .tres files, but we still generate a .scn containing all the nodes.  See
     # about not generating a node tree when we're importing Animations
 
-    # Adjust the root node of the scene for any instance offset in the GLTF
-    # file.
-    scene.position += _vec3_from_blender(get_option_value('_instance_offset'))
+    # Adjust all of the child nodes of the scene root for the collection's
+    # instance offset.
+    var instance_offset = _vec3_from_blender(get_option_value('_instance_offset'))
+    for child in scene.get_children():
+        if child is Node3D:
+            # Subtract here because instance_offset is the vector from the
+            # world origin to the collection origin, not the vector from the
+            # collection origin to the world origin.  So it doesn't work as a
+            # delta to just apply to the nodes.  Instead we need to subtract
+            # it.  Yes, this is still confusing to me.
+            (child as Node3D).position -= instance_offset
 
     var queue = [scene]
     while !queue.is_empty():
